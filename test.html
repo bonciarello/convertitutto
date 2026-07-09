@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ConvertiTutto — Test Suite</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:system-ui,-apple-system,sans-serif;
+  line-height:1.5;
+  background:#f5f5f5;
+  color:#222;
+  padding:24px;
+  max-width:900px;
+  margin:0 auto;
+}
+h1{font-size:1.5rem;margin-bottom:8px}
+h2{font-size:1.1rem;margin:20px 0 8px;border-bottom:2px solid #ddd;padding-bottom:4px}
+.pass{color:#1a7d36}
+.fail{color:#c44536}
+.test{display:flex;align-items:flex-start;gap:8px;padding:6px 0;font-size:0.875rem;border-bottom:1px solid #eee}
+.test .icon{flex-shrink:0;font-weight:bold;width:20px}
+.test .msg{flex:1}
+.summary{background:#fff;border-radius:8px;padding:16px;margin:12px 0;box-shadow:0 1px 3px rgba(0,0,0,0.1)}
+.summary strong{font-size:1.25rem}
+</style>
+</head>
+<body>
+<h1>🧪 ConvertiTutto — Test Suite</h1>
+<div class="summary" id="summary">Esecuzione test in corso…</div>
+<div id="results"></div>
+
+<script>
+/* ── Cloniamo il motore di conversione per i test ── */
+const CATEGORIES = {
+  lunghezza: {
+    name: 'Lunghezza', base: 'm', baseLabel: 'm',
+    units: {
+      km:{name:'Chilometri',factor:1000}, m:{name:'Metri',factor:1},
+      cm:{name:'Centimetri',factor:0.01}, mm:{name:'Millimetri',factor:0.001},
+      um:{name:'Micrometri',factor:1e-6}, nm:{name:'Nanometri',factor:1e-9},
+      in:{name:'Pollici',factor:0.0254}, ft:{name:'Piedi',factor:0.3048},
+      yd:{name:'Iarde',factor:0.9144}, mi:{name:'Miglia',factor:1609.344},
+      nmi:{name:'Miglia naut.',factor:1852}
+    }
+  },
+  peso: {
+    name:'Peso / Massa', base:'g', baseLabel:'g',
+    units:{
+      t:{name:'Tonnellate',factor:1e6}, kg:{name:'Chilogrammi',factor:1000},
+      g:{name:'Grammi',factor:1}, mg:{name:'Milligrammi',factor:0.001},
+      ug:{name:'Microgrammi',factor:1e-6}, lb:{name:'Libbre',factor:453.59237},
+      oz:{name:'Once',factor:28.349523125}, st:{name:'Stone',factor:6350.29318}
+    }
+  },
+  volume: {
+    name:'Volume', base:'L', baseLabel:'L',
+    units:{
+      L:{name:'Litri',factor:1}, mL:{name:'Millilitri',factor:0.001},
+      m3:{name:'Metri cubi',factor:1000}, cm3:{name:'cm³',factor:0.001},
+      gal:{name:'Galloni (US)',factor:3.785411784}, qt:{name:'Quarti (US)',factor:0.946352946},
+      pt:{name:'Pinte (US)',factor:0.473176473}, cup:{name:'Tazze (US)',factor:0.2365882365},
+      floz:{name:'Once fluide',factor:0.0295735295625}
+    }
+  },
+  temperatura: {
+    name:'Temperatura', base:'C', baseLabel:'°C', special:'temperature',
+    units:{ C:{name:'Celsius',factor:1}, F:{name:'Fahrenheit',factor:1}, K:{name:'Kelvin',factor:1} }
+  },
+  velocita: {
+    name:'Velocità', base:'ms', baseLabel:'m/s',
+    units:{
+      ms:{name:'Metri/sec',factor:1}, kmh:{name:'Km/ora',factor:0.27777777777778},
+      mph:{name:'Miglia/ora',factor:0.44704}, knot:{name:'Nodi',factor:0.51444444444444},
+      fts:{name:'Piedi/sec',factor:0.3048}
+    }
+  },
+  area: {
+    name:'Area', base:'m2', baseLabel:'m²',
+    units:{
+      km2:{name:'Km²',factor:1e6}, ha:{name:'Ettari',factor:10000},
+      m2:{name:'Metri²',factor:1}, cm2:{name:'Cm²',factor:0.0001},
+      mm2:{name:'Mm²',factor:1e-6}, acre:{name:'Acri',factor:4046.8564224},
+      ft2:{name:'Piedi²',factor:0.09290304}, in2:{name:'Pollici²',factor:0.00064516}
+    }
+  },
+  tempo: {
+    name:'Tempo', base:'s', baseLabel:'s',
+    units:{
+      s:{name:'Secondi',factor:1}, min:{name:'Minuti',factor:60},
+      h:{name:'Ore',factor:3600}, d:{name:'Giorni',factor:86400},
+      wk:{name:'Settimane',factor:604800}, mo:{name:'Mesi (30g)',factor:2592000},
+      yr:{name:'Anni',factor:31536000}
+    }
+  },
+  dati: {
+    name:'Dati', base:'B', baseLabel:'B',
+    units:{
+      bit:{name:'Bit',factor:0.125}, B:{name:'Byte',factor:1},
+      KB:{name:'KB',factor:1000}, MB:{name:'MB',factor:1e6},
+      GB:{name:'GB',factor:1e9}, TB:{name:'TB',factor:1e12}, PB:{name:'PB',factor:1e15}
+    }
+  }
+};
+
+let customUnits = [];
+
+function convertTemperature(value, fromUnit, toUnit) {
+  let celsius;
+  if (fromUnit === 'C') celsius = value;
+  else if (fromUnit === 'F') celsius = (value - 32) * 5 / 9;
+  else if (fromUnit === 'K') celsius = value - 273.15;
+  else celsius = value;
+  if (toUnit === 'C') return celsius;
+  if (toUnit === 'F') return celsius * 9 / 5 + 32;
+  if (toUnit === 'K') return celsius + 273.15;
+  return celsius;
+}
+
+function convertValue(value, fromUnit, toUnit, categoryKey) {
+  const cat = CATEGORIES[categoryKey];
+  if (!cat) return NaN;
+  if (cat.special === 'temperature') return convertTemperature(value, fromUnit, toUnit);
+
+  let fromFactor;
+  if (cat.units[fromUnit]) fromFactor = cat.units[fromUnit].factor;
+  else {
+    const cu = customUnits.find(u => u.id === fromUnit && u.category === categoryKey);
+    fromFactor = cu ? cu.factor : 1;
+  }
+  let toFactor;
+  if (cat.units[toUnit]) toFactor = cat.units[toUnit].factor;
+  else {
+    const cu = customUnits.find(u => u.id === toUnit && u.category === categoryKey);
+    toFactor = cu ? cu.factor : 1;
+  }
+  return (value * fromFactor) / toFactor;
+}
+
+/* ── Test framework ── */
+let passed = 0, failed = 0;
+const results = [];
+
+function test(name, fn) {
+  try {
+    fn();
+    passed++;
+    results.push({ name, ok: true });
+  } catch (e) {
+    failed++;
+    results.push({ name, ok: false, error: e.message });
+  }
+}
+
+function assertApprox(actual, expected, tolerance = 0.001, msg = '') {
+  const diff = Math.abs(actual - expected);
+  if (diff > tolerance) {
+    throw new Error(`${msg} Atteso ~${expected}, ottenuto ${actual} (diff: ${diff})`);
+  }
+}
+
+function assertEqual(actual, expected, msg = '') {
+  if (actual !== expected) {
+    throw new Error(`${msg} Atteso "${expected}", ottenuto "${actual}"`);
+  }
+}
+
+function assertTrue(cond, msg = '') {
+  if (!cond) throw new Error(msg || 'Condizione falsa');
+}
+
+/* ── Test: Conversioni lunghezza ── */
+test('1 metro = 100 cm', () => {
+  assertApprox(convertValue(1, 'm', 'cm', 'lunghezza'), 100, 0.001);
+});
+test('1 metro = 1000 mm', () => {
+  assertApprox(convertValue(1, 'm', 'mm', 'lunghezza'), 1000, 0.001);
+});
+test('1 metro = 0.001 km', () => {
+  assertApprox(convertValue(1, 'm', 'km', 'lunghezza'), 0.001, 0.0001);
+});
+test('1 metro ≈ 39.37 pollici', () => {
+  const r = convertValue(1, 'm', 'in', 'lunghezza');
+  assertApprox(r, 39.37, 0.01);
+});
+test('1 metro ≈ 3.28 piedi', () => {
+  const r = convertValue(1, 'm', 'ft', 'lunghezza');
+  assertApprox(r, 3.28, 0.01);
+});
+test('1 metro ≈ 1.09 iarde', () => {
+  const r = convertValue(1, 'm', 'yd', 'lunghezza');
+  assertApprox(r, 1.09, 0.01);
+});
+test('100 cm = 1 m', () => {
+  assertApprox(convertValue(100, 'cm', 'm', 'lunghezza'), 1, 0.001);
+});
+test('1 miglio ≈ 1609.34 m', () => {
+  assertApprox(convertValue(1, 'mi', 'm', 'lunghezza'), 1609.344, 0.01);
+});
+
+/* ── Test: Conversioni peso ── */
+test('1 kg = 1000 g', () => {
+  assertApprox(convertValue(1, 'kg', 'g', 'peso'), 1000, 0.001);
+});
+test('1 kg ≈ 2.2046 libbre', () => {
+  assertApprox(convertValue(1, 'kg', 'lb', 'peso'), 2.2046, 0.01);
+});
+test('1 libbra ≈ 453.59 g', () => {
+  assertApprox(convertValue(1, 'lb', 'g', 'peso'), 453.59237, 0.01);
+});
+
+/* ── Test: Conversioni volume ── */
+test('1 L = 1000 mL', () => {
+  assertApprox(convertValue(1, 'L', 'mL', 'volume'), 1000, 0.001);
+});
+test('1 gallone ≈ 3.785 L', () => {
+  assertApprox(convertValue(1, 'gal', 'L', 'volume'), 3.785411784, 0.01);
+});
+
+/* ── Test: Conversioni temperatura ── */
+test('0 °C = 32 °F', () => {
+  assertApprox(convertValue(0, 'C', 'F', 'temperatura'), 32, 0.001);
+});
+test('100 °C = 212 °F', () => {
+  assertApprox(convertValue(100, 'C', 'F', 'temperatura'), 212, 0.001);
+});
+test('0 °C = 273.15 K', () => {
+  assertApprox(convertValue(0, 'C', 'K', 'temperatura'), 273.15, 0.001);
+});
+test('100 °C = 373.15 K', () => {
+  assertApprox(convertValue(100, 'C', 'K', 'temperatura'), 373.15, 0.001);
+});
+test('32 °F = 0 °C', () => {
+  assertApprox(convertValue(32, 'F', 'C', 'temperatura'), 0, 0.001);
+});
+test('212 °F = 100 °C', () => {
+  assertApprox(convertValue(212, 'F', 'C', 'temperatura'), 100, 0.001);
+});
+
+/* ── Test: Conversioni velocità ── */
+test('1 m/s = 3.6 km/h', () => {
+  assertApprox(convertValue(1, 'ms', 'kmh', 'velocita'), 3.6, 0.01);
+});
+test('1 km/h ≈ 0.621 mph', () => {
+  assertApprox(convertValue(1, 'kmh', 'mph', 'velocita'), 0.621371, 0.01);
+});
+
+/* ── Test: Conversioni area ── */
+test('1 m² = 10000 cm²', () => {
+  assertApprox(convertValue(1, 'm2', 'cm2', 'area'), 10000, 0.01);
+});
+test('1 ha = 10000 m²', () => {
+  assertApprox(convertValue(1, 'ha', 'm2', 'area'), 10000, 0.01);
+});
+
+/* ── Test: Conversioni tempo ── */
+test('1 ora = 60 minuti', () => {
+  assertApprox(convertValue(1, 'h', 'min', 'tempo'), 60, 0.001);
+});
+test('1 ora = 3600 secondi', () => {
+  assertApprox(convertValue(1, 'h', 's', 'tempo'), 3600, 0.001);
+});
+test('1 giorno = 24 ore', () => {
+  assertApprox(convertValue(1, 'd', 'h', 'tempo'), 24, 0.001);
+});
+
+/* ── Test: Conversioni dati ── */
+test('1 KB = 1000 byte', () => {
+  assertApprox(convertValue(1, 'KB', 'B', 'dati'), 1000, 0.001);
+});
+test('1 MB = 1000 KB', () => {
+  assertApprox(convertValue(1, 'MB', 'KB', 'dati'), 1000, 0.001);
+});
+test('1 byte = 8 bit', () => {
+  assertApprox(convertValue(1, 'B', 'bit', 'dati'), 8, 0.001);
+});
+
+/* ── Test: Unità personalizzate ── */
+test('Creazione unità personalizzata "Passo" (0.75m)', () => {
+  customUnits.push({
+    id: 'cu_test_passo',
+    name: 'Passo',
+    factor: 0.75,
+    category: 'lunghezza'
+  });
+  const found = customUnits.find(u => u.id === 'cu_test_passo');
+  assertTrue(!!found, 'Unità non trovata dopo creazione');
+  assertEqual(found.name, 'Passo');
+  assertApprox(found.factor, 0.75, 0.001);
+});
+
+test('Conversione 2 passi = 1.5 metri', () => {
+  const r = convertValue(2, 'cu_test_passo', 'm', 'lunghezza');
+  assertApprox(r, 1.5, 0.001);
+});
+
+test('Conversione 1.5 metri = 2 passi', () => {
+  const r = convertValue(1.5, 'm', 'cu_test_passo', 'lunghezza');
+  assertApprox(r, 2, 0.001);
+});
+
+test('Conversione 1 passo = 75 cm', () => {
+  const r = convertValue(1, 'cu_test_passo', 'cm', 'lunghezza');
+  assertApprox(r, 75, 0.001);
+});
+
+test('Eliminazione unità personalizzata', () => {
+  customUnits = customUnits.filter(u => u.id !== 'cu_test_passo');
+  const found = customUnits.find(u => u.id === 'cu_test_passo');
+  assertTrue(!found, 'Unità ancora presente dopo eliminazione');
+});
+
+test('Unità eliminata non converte più (usa fallback)', () => {
+  const r = convertValue(2, 'cu_test_passo', 'm', 'lunghezza');
+  assertEqual(r, 2); // fallback: fromFactor = 1, toFactor = 1
+});
+
+/* ── Test: localStorage ── */
+test('localStorage: salvataggio array vuoto', () => {
+  localStorage.setItem('test_ct_save', JSON.stringify([]));
+  const raw = localStorage.getItem('test_ct_save');
+  const parsed = JSON.parse(raw);
+  assertTrue(Array.isArray(parsed), 'Non è un array');
+  assertEqual(parsed.length, 0);
+  localStorage.removeItem('test_ct_save');
+});
+
+test('localStorage: salvataggio e caricamento unità', () => {
+  const units = [{ id: 'x1', name: 'TestUnit', factor: 2.5, category: 'lunghezza' }];
+  localStorage.setItem('test_ct_units', JSON.stringify(units));
+  const raw = localStorage.getItem('test_ct_units');
+  const parsed = JSON.parse(raw);
+  assertEqual(parsed.length, 1);
+  assertEqual(parsed[0].name, 'TestUnit');
+  assertApprox(parsed[0].factor, 2.5, 0.001);
+  localStorage.removeItem('test_ct_units');
+});
+
+test('localStorage: dati corrotti gestiti', () => {
+  localStorage.setItem('test_ct_bad', '{invalid json');
+  try {
+    JSON.parse(localStorage.getItem('test_ct_bad'));
+    assertTrue(false, 'Avrebbe dovuto lanciare errore');
+  } catch {
+    assertTrue(true);
+  }
+  localStorage.removeItem('test_ct_bad');
+});
+
+/* ── Test: Edge cases ── */
+test('Zero value conversion', () => {
+  assertApprox(convertValue(0, 'm', 'cm', 'lunghezza'), 0, 0.001);
+  assertApprox(convertValue(0, 'C', 'F', 'temperatura'), 32, 0.001);
+});
+
+test('Negative value conversion', () => {
+  const r = convertValue(-5, 'm', 'cm', 'lunghezza');
+  assertApprox(r, -500, 0.001);
+});
+
+test('Negative temperature', () => {
+  const r = convertValue(-40, 'C', 'F', 'temperatura');
+  assertApprox(r, -40, 0.001);
+});
+
+test('Very large value', () => {
+  const r = convertValue(1e9, 'm', 'km', 'lunghezza');
+  assertApprox(r, 1e6, 1);
+});
+
+test('Very small value', () => {
+  const r = convertValue(1e-6, 'km', 'mm', 'lunghezza');
+  assertApprox(r, 1, 0.01);
+});
+
+test('Same unit conversion = identity', () => {
+  assertApprox(convertValue(42, 'm', 'm', 'lunghezza'), 42, 0.001);
+  assertApprox(convertValue(100, 'C', 'C', 'temperatura'), 100, 0.001);
+});
+
+test('Categoria inesistente restituisce NaN', () => {
+  const r = convertValue(1, 'x', 'y', 'inesistente');
+  assertTrue(isNaN(r), 'Dovrebbe essere NaN');
+});
+
+/* ── Render results ── */
+const container = document.getElementById('results');
+results.forEach((r, i) => {
+  const div = document.createElement('div');
+  div.className = 'test';
+  div.innerHTML = `
+    <span class="icon">${r.ok ? '<span class="pass">✓</span>' : '<span class="fail">✗</span>'}</span>
+    <span class="msg">${r.name}${!r.ok ? ' <span class="fail">— ' + r.error + '</span>' : ''}</span>
+  `;
+  container.appendChild(div);
+});
+
+const summary = document.getElementById('summary');
+const total = passed + failed;
+summary.innerHTML = `
+  <strong>${passed}/${total} passati</strong>
+  ${failed > 0 ? '<span class="fail"> — ' + failed + ' falliti</span>' : '<span class="pass"> — tutti i test superati ✓</span>'}
+`;
+summary.style.borderLeft = failed === 0 ? '4px solid #1a7d36' : '4px solid #c44536';
+</script>
+</body>
+</html>
